@@ -1,0 +1,6 @@
+r
+loadfile HW1_0/UHFM.hex
+verifyfile HW1_0/UHFM.hex
+r
+g
+qc
