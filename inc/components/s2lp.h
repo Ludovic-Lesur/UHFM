@@ -213,7 +213,7 @@ void S2LP_set_modulation(S2LP_modulation_t modulation);
 void S2LP_set_rf_frequency(unsigned int rf_frequency_hz);
 void S2LP_set_fsk_deviation(S2LP_mantissa_exponent_t fsk_deviation_setting);
 void S2LP_set_bitrate(S2LP_mantissa_exponent_t bit_rate_setting);
-void S2LP_configure_gpio(unsigned char pin_indexber, S2LP_GPIO_mode_t gpio_mode, unsigned char gpio_function, unsigned char fifo_flag_direction);
+void S2LP_configure_gpio(unsigned char gpio_index, S2LP_GPIO_mode_t gpio_mode, unsigned char gpio_function, unsigned char fifo_flag_direction);
 void S2LP_set_fifo_threshold(S2LP_fifo_threshold_t fifo_threshold, unsigned char threshold_value);
 void S2LP_configure_irq(S2LP_irq_index_t irq_idx, unsigned irq_enable);
 void S2LP_clear_irq_flags(void);

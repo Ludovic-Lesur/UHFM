@@ -27,6 +27,7 @@
 
 #define S2LP_SYNC_WORD_LENGTH_BITS_MAX		32
 #define S2LP_RSSI_OFFSET_DB					146
+#define S2LP_RF_FRONT_END_GAIN_DB			12
 
 #define S2LP_TX_FIFO_USE_DMA // Use DMA to fill TX FIFO, standard SPI access otherwise.
 
@@ -99,12 +100,12 @@ void S2LP_disable(void) {
 void S2LP_set_gpio0(unsigned char pull_resistor_config) {
 	if (pull_resistor_config == 0) {
 		// Uplink configuration (pull-down + rising edge).
-		GPIO_configure(&GPIO_S2LP_GPIO0, GPIO_MODE_INPUT, GPIO_TYPE_OPEN_DRAIN, GPIO_SPEED_LOW, GPIO_PULL_DOWN);
+		GPIO_configure(&GPIO_S2LP_GPIO0, GPIO_MODE_INPUT, GPIO_TYPE_PUSH_PULL, GPIO_SPEED_LOW, GPIO_PULL_DOWN);
 		EXTI_configure_gpio(&GPIO_S2LP_GPIO0, EXTI_TRIGGER_RISING_EDGE);
 	}
 	else {
-		// Downlink configuration -pull_up + falling edge).
-		GPIO_configure(&GPIO_S2LP_GPIO0, GPIO_MODE_INPUT, GPIO_TYPE_OPEN_DRAIN, GPIO_SPEED_LOW, GPIO_PULL_UP);
+		// Downlink configuration (pull_up + falling edge).
+		GPIO_configure(&GPIO_S2LP_GPIO0, GPIO_MODE_INPUT, GPIO_TYPE_PUSH_PULL, GPIO_SPEED_LOW, GPIO_PULL_UP);
 		EXTI_configure_gpio(&GPIO_S2LP_GPIO0, EXTI_TRIGGER_FALLING_EDGE);
 	}
 }
@@ -115,13 +116,8 @@ void S2LP_set_gpio0(unsigned char pull_resistor_config) {
  */
 void S2LP_tcxo(unsigned char tcxo_enable) {
 	// Turn TCXO on or off.
-	if (tcxo_enable != 0) {
-		GPIO_write(&GPIO_TCXO_POWER_ENABLE, 1);
-		LPTIM1_delay_milliseconds(100, 1);
-	}
-	else {
-		GPIO_write(&GPIO_TCXO_POWER_ENABLE, 0);
-	}
+	GPIO_write(&GPIO_TCXO_POWER_ENABLE, tcxo_enable);
+	LPTIM1_delay_milliseconds(100, 1);
 }
 
 /* PUT S2LP IN SHUTDOWN MODE.
@@ -164,6 +160,7 @@ void S2LP_send_command(S2LP_command_t command) {
  * @return:				None.
  */
 void S2LP_wait_for_state(S2LP_state_t new_state) {
+	// Local variables.
 	unsigned char state = 0;
 	unsigned char reg_value = 0;
 	// Poll MC_STATE until state is reached.
@@ -179,6 +176,7 @@ void S2LP_wait_for_state(S2LP_state_t new_state) {
  * @return:	None.
  */
 void S2LP_wait_for_oscillator(void) {
+	// Local variables.
 	unsigned char xo_on = 0;
 	unsigned char reg_value = 0;
 	// Poll MC_STATE until state is reached.
@@ -243,8 +241,9 @@ void S2LP_configure_charge_pump(void) {
  * @return:				None.
  */
 void S2LP_set_modulation(S2LP_modulation_t modulation) {
-	// Read register.
+	// Local variables.
 	unsigned char mod2_reg_value = 0;
+	// Read register.
 	S2LP_read_register(S2LP_REG_MOD2, &mod2_reg_value);
 	// Change required bits.
 	mod2_reg_value &= 0x0F;
@@ -258,6 +257,9 @@ void S2LP_set_modulation(S2LP_modulation_t modulation) {
  * @return:					None.
  */
 void S2LP_set_rf_frequency(unsigned int rf_frequency_hz) {
+	// Local variables.
+	unsigned long long synt_value = 0;
+	unsigned char synt_reg_value = 0;
 	// Set IF to 300kHz.
 	if (S2LP_XO_FREQUENCY_HZ < S2LP_XO_HIGH_RANGE_THRESHOLD_HZ) {
 		S2LP_write_register(S2LP_REG_IF_OFFSET_ANA, 0xB8);
@@ -267,11 +269,10 @@ void S2LP_set_rf_frequency(unsigned int rf_frequency_hz) {
 	S2LP_write_register(S2LP_REG_CHNUM, 0x00);
 	// B=4 for 868MHz (high band, BS=0). REFDIV was set to 0 in oscillator configuration function.
 	// SYNT = (fRF * 2^20 * B/2 * D) / (fXO) = (fRF * 2^21) / (fXO).
-	unsigned long long synt_value = 0b1 << 21;
+	synt_value = 0b1 << 21;
 	synt_value *= rf_frequency_hz;
 	synt_value /= S2LP_XO_FREQUENCY_HZ;
 	// Write registers.
-	unsigned char synt_reg_value = 0;
 	S2LP_read_register(S2LP_REG_SYNT3, &synt_reg_value);
 	synt_reg_value &= 0xE0; // BS=0 to select high band.
 	synt_reg_value |= ((synt_value >> 24) & 0x0F);
@@ -289,9 +290,10 @@ void S2LP_set_rf_frequency(unsigned int rf_frequency_hz) {
  * @return:							None.
  */
 void S2LP_set_fsk_deviation(S2LP_mantissa_exponent_t fsk_deviation_setting) {
+	// Local variables.
+	unsigned char mod1_reg_value = 0;
 	// Write registers.
 	S2LP_write_register(S2LP_REG_MOD0, fsk_deviation_setting.mantissa);
-	unsigned char mod1_reg_value = 0;
 	S2LP_read_register(S2LP_REG_MOD1, &mod1_reg_value);
 	mod1_reg_value &= 0xF0;
 	mod1_reg_value |= fsk_deviation_setting.exponent;
@@ -303,10 +305,11 @@ void S2LP_set_fsk_deviation(S2LP_mantissa_exponent_t fsk_deviation_setting) {
  * @return:					None.
  */
 void S2LP_set_bitrate(S2LP_mantissa_exponent_t bit_rate_setting) {
+	// Local variables.
+	unsigned char mod2_reg_value = 0;
 	// Write registers.
 	S2LP_write_register(S2LP_REG_MOD4, (bit_rate_setting.mantissa >> 8) & 0x00FF);
 	S2LP_write_register(S2LP_REG_MOD3, (bit_rate_setting.mantissa >> 0) & 0x00FF);
-	unsigned char mod2_reg_value = 0;
 	S2LP_read_register(S2LP_REG_MOD2, &mod2_reg_value);
 	mod2_reg_value &= 0xF0;
 	mod2_reg_value |= (bit_rate_setting.exponent);
@@ -314,22 +317,23 @@ void S2LP_set_bitrate(S2LP_mantissa_exponent_t bit_rate_setting) {
 }
 
 /* CONFIGURE S2LP GPIOs.
- * @param pin_indexber:			GPIO to configure (0 to 3).
+ * @param gpio_index:			GPIO to configure (0 to 3).
  * @param gpio_mode:			GPIO mode (use enum defined in s2lp.h).
  * @param gpio_function:		GPIO function (use enum defined in s2lp.h).
  * @param fifo_flag_direction:	'1' to select RX FIFO flags, '0' to select TX FIFO flags.
  * @return:						None.
  */
-void S2LP_configure_gpio(unsigned char pin_indexber, S2LP_GPIO_mode_t gpio_mode, unsigned char gpio_function, unsigned char fifo_flag_direction) {
-	// Read corresponding register.
+void S2LP_configure_gpio(unsigned char gpio_index, S2LP_GPIO_mode_t gpio_mode, unsigned char gpio_function, unsigned char fifo_flag_direction) {
+	// Local variables.
 	unsigned char reg_value = 0;
-	S2LP_read_register((S2LP_REG_GPIO0_CONF + pin_indexber), &reg_value);
+	// Read corresponding register.
+	S2LP_read_register((S2LP_REG_GPIO0_CONF + gpio_index), &reg_value);
 	// Set required bits.
 	reg_value &= 0x04; // Bit 2 is reserved.
 	reg_value |= ((gpio_mode & 0x02) << 0);
 	reg_value |= ((gpio_function & 0x1F) << 3);
 	// Write register.
-	S2LP_write_register((S2LP_REG_GPIO0_CONF + pin_indexber), reg_value);
+	S2LP_write_register((S2LP_REG_GPIO0_CONF + gpio_index), reg_value);
 	// Select FIFO flags.
 	S2LP_read_register(S2LP_REG_PROTOCOL2, &reg_value);
 	reg_value &= 0xFB;
@@ -353,11 +357,11 @@ void S2LP_set_fifo_threshold(S2LP_fifo_threshold_t fifo_threshold, unsigned char
  * @return:				None.
  */
 void S2LP_configure_irq(S2LP_irq_index_t irq_idx, unsigned irq_enable) {
-	// Get register and bit offsets.
+	// Local variables.
+	unsigned char reg_value = 0;
 	unsigned char reg_addr_offset = (irq_idx / 8);
 	unsigned char irq_bit_offset = (irq_idx % 8);
-	// Read register.
-	unsigned char reg_value = 0;
+	// Read required register.
 	S2LP_read_register((S2LP_REG_IRQ_MASK0 - reg_addr_offset), &reg_value);
 	// Set bit.
 	reg_value &= ~(0b1 << irq_bit_offset);
@@ -371,11 +375,13 @@ void S2LP_configure_irq(S2LP_irq_index_t irq_idx, unsigned irq_enable) {
  * @return:	None.
  */
 void S2LP_clear_irq_flags(void) {
+	// Local variables.
 	unsigned char reg_value = 0;
-	S2LP_read_register(S2LP_REG_IRQ_STATUS3,  &reg_value);
-	S2LP_read_register(S2LP_REG_IRQ_STATUS2,  &reg_value);
-	S2LP_read_register(S2LP_REG_IRQ_STATUS1,  &reg_value);
-	S2LP_read_register(S2LP_REG_IRQ_STATUS0,  &reg_value);
+	// Read registers to clear flags.
+	S2LP_read_register(S2LP_REG_IRQ_STATUS3, &reg_value);
+	S2LP_read_register(S2LP_REG_IRQ_STATUS2, &reg_value);
+	S2LP_read_register(S2LP_REG_IRQ_STATUS1, &reg_value);
+	S2LP_read_register(S2LP_REG_IRQ_STATUS0, &reg_value);
 }
 
 /* SET PACKET LENGTH.
@@ -394,8 +400,9 @@ void S2LP_set_packet_length(unsigned char packet_length_bytes) {
  * @return:							None.
  */
 void S2LP_set_preamble_detector(unsigned char preamble_length_2bits, S2LP_preamble_pattern_t preamble_pattern) {
-	// Set length.
+	// Local variables.
 	unsigned char pcktctrlx_reg_value = 0;
+	// Set length.
 	S2LP_read_register(S2LP_REG_PCKTCTRL6, &pcktctrlx_reg_value);
 	pcktctrlx_reg_value &= 0xFC;
 	S2LP_write_register(S2LP_REG_PCKTCTRL6, pcktctrlx_reg_value);
@@ -413,22 +420,23 @@ void S2LP_set_preamble_detector(unsigned char preamble_length_2bits, S2LP_preamb
  * @return:							None.
  */
 void S2LP_set_sync_word(unsigned char* sync_word, unsigned char sync_word_length_bits) {
-	// Clamp value if needed.
+	// Local variables.
 	unsigned char local_sync_word_length_bits = sync_word_length_bits;
+	unsigned char sync_word_length_bytes = (local_sync_word_length_bits / 8);
+	unsigned char pcktctrl6_reg_value = 0;
+	unsigned char byte_idx = 0;
+	// Clamp value if needed.
 	if (local_sync_word_length_bits > S2LP_SYNC_WORD_LENGTH_BITS_MAX) {
 		local_sync_word_length_bits = S2LP_SYNC_WORD_LENGTH_BITS_MAX;
 	}
 	// Set synchronization word.
-	unsigned char sync_word_length_bytes = (local_sync_word_length_bits / 8);
 	if ((local_sync_word_length_bits - (sync_word_length_bytes * 8)) > 0) {
 		sync_word_length_bytes++;
 	}
-	unsigned char byte_idx = 0;
 	for (byte_idx=0 ; byte_idx<sync_word_length_bytes ; byte_idx++) {
 		S2LP_write_register((S2LP_REG_SYNC0 - byte_idx), sync_word[byte_idx]);
 	}
 	// Set length.
-	unsigned char pcktctrl6_reg_value = 0;
 	S2LP_read_register(S2LP_REG_PCKTCTRL6, &pcktctrl6_reg_value);
 	pcktctrl6_reg_value &= 0x03;
 	pcktctrl6_reg_value |= (local_sync_word_length_bits << 2);
@@ -440,8 +448,9 @@ void S2LP_set_sync_word(unsigned char* sync_word, unsigned char sync_word_length
  * @return:	None.
  */
 void S2LP_disable_crc(void) {
-	// Read register.
+	// Local variables.
 	unsigned char reg_value = 0;
+	// Read register.
 	S2LP_read_register(S2LP_REG_PCKTCTRL1, &reg_value);
 	// Set bits.
 	reg_value &= 0x1F;
@@ -454,8 +463,9 @@ void S2LP_disable_crc(void) {
  * @return:	None.
  */
 void S2LP_configure_pa(void) {
-	// Disable PA power ramping and select slot 0.
+	// Local variables.
 	unsigned char reg_value = 0;
+	// Disable PA power ramping and select slot 0.
 	S2LP_write_register(S2LP_REG_PA_POWER0, 0x00);
 	// Disable FIR.
 	S2LP_read_register(S2LP_REG_PA_CONFIG1,  &reg_value);
@@ -468,7 +478,7 @@ void S2LP_configure_pa(void) {
  * @return:					None.
  */
 void S2LP_set_rf_output_power(signed char output_power_dbm) {
-	// local variables.
+	// Local variables.
 	unsigned char reg_value = 0;
 	unsigned char pa_reg_value = 0;
 	signed char local_power_dbm = output_power_dbm;
@@ -493,8 +503,9 @@ void S2LP_set_rf_output_power(signed char output_power_dbm) {
  * @return:				None.
  */
 void S2LP_set_tx_source(S2LP_tx_source_t tx_source) {
-	// Read register.
+	// Local variables.
 	unsigned char reg_value = 0;
+	// Read register.
 	S2LP_read_register(S2LP_REG_PCKTCTRL1, &reg_value);
 	// Set bits.
 	reg_value &= 0xF3;
@@ -539,8 +550,9 @@ void S2LP_write_fifo(unsigned char* tx_data, unsigned char tx_data_length_bytes)
  * @return:				None.
  */
 void S2LP_set_rx_source(S2LP_rx_source_t rx_source) {
-	// Read register.
+	// Local variables.
 	unsigned char reg_value = 0;
+	// Read register.
 	S2LP_read_register(S2LP_REG_PCKTCTRL3, &reg_value);
 	// Set bits.
 	reg_value &= 0xCF;
@@ -564,8 +576,9 @@ void S2LP_set_rx_bandwidth(S2LP_mantissa_exponent_t rxbw_setting) {
  * @return:	None.
  */
 void S2LP_disable_equa_cs_ant_switch(void) {
-	// Read register.
+	// Local variables.
 	unsigned char ant_select_conf_reg_value = 0;
+	// Read register.
 	S2LP_read_register(S2LP_REG_ANT_SELECT_CONF, &ant_select_conf_reg_value);
 	// Disable equalization.
 	ant_select_conf_reg_value &= 0x83;
@@ -578,9 +591,13 @@ void S2LP_disable_equa_cs_ant_switch(void) {
  * return rssi:	RSSI level captured at the end of the sync word detection (in dBm).
  */
 signed int S2LP_get_rssi(void) {
+	// Local variables.
 	unsigned char rssi_level_reg_value = 0;
+	signed int rssi = 0;
+	// Read register.
 	S2LP_read_register(S2LP_REG_RSSI_LEVEL, &rssi_level_reg_value);
-	signed int rssi = rssi_level_reg_value - S2LP_RSSI_OFFSET_DB;
+	// Add offsets.
+	rssi = rssi_level_reg_value - S2LP_RSSI_OFFSET_DB - S2LP_RF_FRONT_END_GAIN_DB;
 	return rssi;
 }
 
@@ -589,8 +606,10 @@ signed int S2LP_get_rssi(void) {
  * @param rx_data_length_bytes:	Number of bytes to read.
  */
 void S2LP_read_fifo(unsigned char* rx_data, unsigned char rx_data_length_bytes) {
-	// Clamp value if needed.
+	// Local variables.
 	unsigned char local_rx_data_length_bytes = rx_data_length_bytes;
+	unsigned char byte_idx = 0;
+	// Clamp value if needed.
 	if (local_rx_data_length_bytes > S2LP_FIFO_SIZE_BYTES) {
 		local_rx_data_length_bytes = S2LP_FIFO_SIZE_BYTES;
 	}
@@ -599,7 +618,6 @@ void S2LP_read_fifo(unsigned char* rx_data, unsigned char rx_data_length_bytes) 
 	// Burst read sequence.
 	SPI1_write_byte(S2LP_HEADER_BYTE_READ); // A/C='0' and W/R='1'.
 	SPI1_write_byte(S2LP_REG_FIFO);
-	unsigned char byte_idx = 0;
 	for (byte_idx=0 ; byte_idx<local_rx_data_length_bytes ; byte_idx++) {
 		SPI1_read_byte(0xFF, &(rx_data[byte_idx]));
 	}
